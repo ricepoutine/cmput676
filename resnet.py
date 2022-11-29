@@ -566,7 +566,7 @@ def evaluate(model, iterator, criterion, device, k=5, extract_features = False, 
             
             if extract_features:
                 #add feats and preds to list
-                #plist.append(y_pred.detach().cpu().numpy())
+                plist.append(y_pred.detach().cpu().numpy())
                 flist.append(fdict['feats'].cpu().numpy())
 
             loss = criterion(y_pred, y)
@@ -954,18 +954,18 @@ def main():
 
     # Inspect features (TEST)
 
-    #PREDS = np.concatenate(PREDS)
-    FEATS = np.concatenate(FEATS)
+    PREDS = np.concatenate(PREDS)
+    FEATS = np.resize(np.concatenate(FEATS), (200,2048))
 
-    #print('- preds shape:', PREDS.shape)
+    print('- preds shape:', PREDS.shape)
     print('- feats shape:', FEATS.shape)
 
     import csv
-    with open('PREDS.csv', 'w') as f:
+    with open('PREDS_test.csv', 'w') as f:
         write = csv.writer(f)
         write.writerows(PREDS)
         f.close()
-    with open('FEATS.csv', 'w') as f:
+    with open('FEATS_test.csv', 'w') as f:
         write = csv.writer(f)
         write.writerows(FEATS)
         f.close()
