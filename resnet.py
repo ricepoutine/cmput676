@@ -165,13 +165,6 @@ from helper import get_features
 # batch normalization layer which has a $\beta$ (beta) term that does the same thing as the bias term in the convolutional layer, 
 # a simple addition. See the previous notebook for more details on how batch normalization works.
 
-# placeholders
-PREDS = []
-FEATS = []
-
-# placeholder for batch features
-features = {}
-
 class ResNet(nn.Module):
     def __init__(self, config, output_dim):
         super().__init__()
@@ -554,7 +547,7 @@ def train(model, iterator, optimizer, criterion, scheduler, device, k=5):
 # The evaluation function is also similar to previous notebooks, with the addition of the top-k accuracy.
 # As the one cycle scheduler should only be called after each parameter update, it is not called 
 # here as we do not update parameters whilst evaluating.
-def evaluate(model, iterator, criterion, device, k=5, extract_features = False):
+def evaluate(model, iterator, criterion, device, k=5, extract_features = False, fdict = {}, flist = [], plist = []):
     
     epoch_loss = 0
     epoch_acc_1 = 0
@@ -573,8 +566,8 @@ def evaluate(model, iterator, criterion, device, k=5, extract_features = False):
             
             if extract_features:
                 #add feats and preds to list
-                PREDS.append(y_pred.detach().cpu().numpy())
-                FEATS.append(features['feats'].cpu().numpy())
+                #plist.append(y_pred.detach().cpu().numpy())
+                flist.append(fdict['feats'].cpu().numpy())
 
             loss = criterion(y_pred, y)
 
@@ -834,13 +827,22 @@ def main():
     # and device, and then placing the model and the loss function on to the device.
     START_LR = 1e-7
     optimizer = optim.Adam(model.parameters(), lr=START_LR)
-    device = torch.device('cuda') #mps for mac
+    device = torch.device('mps') #mps for mac
     criterion = nn.CrossEntropyLoss()
     model = model.to(device)
     criterion = criterion.to(device)
     
     # Extract features: https://github.com/kozodoi/website/blob/master/_notebooks/2021-05-27-extracting-features.ipynb
-    model.avgpool.register_forward_hook(get_features('feats'))
+
+    # placeholders
+    PREDS = []
+    FEATS = []
+
+    # placeholder for batch features
+    features = {}
+
+    # print(model)
+    model.avgpool.register_forward_hook(get_features('feats', dict=features))
 
     # We then define our learning rate finder and run the range test.
     if find_learning_rate:
@@ -922,6 +924,8 @@ def main():
     # Finally, we can train our model!
     best_valid_loss = float('inf')
 
+    # remove if already trained!!!
+    """
     for epoch in range(EPOCHS):
         
         start_time = time.monotonic()
@@ -942,32 +946,35 @@ def main():
             f'Train Acc @1: {train_acc_5*100:6.2f}%')
         print(f'\tValid Loss: {valid_loss:.3f} | Valid Acc @1: {valid_acc_1*100:6.2f}% | ' \
             f'Valid Acc @1: {valid_acc_5*100:6.2f}%')
-
+    """
     ### TODO: take best model features and generate data points to fit gaussians
+
     model.load_state_dict(torch.load('tut5-model.pt'))
-    _, _, _ = evaluate(model, valid_iterator, criterion, device, k=1, extract_features = True)
+    _, _, _ = evaluate(model, valid_iterator, criterion, device, k=1, extract_features = True, fdict=features, flist=FEATS, plist=PREDS)
 
     # Inspect features (TEST)
-    PREDS = np.concatenate(PREDS)
+
+    #PREDS = np.concatenate(PREDS)
     FEATS = np.concatenate(FEATS)
 
-    print('- preds shape:', PREDS.shape)
+    #print('- preds shape:', PREDS.shape)
     print('- feats shape:', FEATS.shape)
 
     import csv
-    with open('PREDS', 'w') as f:
+    with open('PREDS.csv', 'w') as f:
         write = csv.writer(f)
         write.writerows(PREDS)
         f.close()
-    with open('FEATS', 'w') as f:
+    with open('FEATS.csv', 'w') as f:
         write = csv.writer(f)
         write.writerows(FEATS)
         f.close()
     
+    '''
     # Examine the test accuracies
     model.load_state_dict(torch.load('tut5-model.pt'))
 
-    test_loss, test_acc_1, test_acc_k = evaluate(model, test_iterator, criterion, device, k=1, extract_features = False)
+    test_loss, test_acc_1, test_acc_k = evaluate(model, test_iterator, criterion, device, k=1, extract_features = False, flist = FEATS, plist = PREDS)
 
     print(f'Test Loss: {test_loss:.3f} | Test Acc @1: {test_acc_1*100:6.2f}% | ' \
         f'Test Acc @1: {test_acc_k*100:6.2f}%')
@@ -989,7 +996,7 @@ def main():
     plot_filtered_images(images, labels, classes, filters, n_filters=N_FILTERS)
     
     plot_filters(filters, title='After')
-        
+    '''
     return
         
         
