@@ -434,7 +434,7 @@ def main():
 
     learn_means_from_data = False #set to false and load dict to use pretrained
     show_sample_images = False
-    print_model = False
+    print_model = True
     find_learning_rate = False
 
     random.seed(SEED)
@@ -602,15 +602,15 @@ def main():
     # This is also a good sanity check to ensure our ResNet model matches those used by torchvision.
     
     ###TESTING NO PRETRAINING
-    model.load_state_dict(pretrained_model.state_dict())
+    #model.load_state_dict(pretrained_model.state_dict())
     
     # We can also see the number of parameters in our model - noticing that ResNet50 only has ~24M parameters 
     # compared to VGG11's ~129M. This is mostly due to the lack of high dimensional linear layers which 
     # have been replaced by more parameter efficient convolutional layers.
     print(f'The model has {count_parameters(model):,} trainable parameters')
 
-    # filters = model.conv1.weight.data
-    # plot_filters(filters, title="Before")
+    filters = model.conv1.weight.data
+    plot_filters(filters, title="Before")
     
     # ### Training the Model
     #
@@ -621,7 +621,7 @@ def main():
     # and device, and then placing the model and the loss function on to the device.
     START_LR = 1e-7
     optimizer = optim.Adam(model.parameters(), lr=START_LR)
-    device = torch.device('mps') #mps for mac
+    device = torch.device('cuda:0') #mps for mac
     criterion = nn.CrossEntropyLoss()
     model = model.to(device)
     criterion = criterion.to(device)
@@ -684,7 +684,7 @@ def main():
     best_valid_loss = float('inf')
 
     # remove if already trained!!!
-
+    
     for epoch in range(EPOCHS):
         
         start_time = time.monotonic()
@@ -705,7 +705,7 @@ def main():
             f'Train Acc @1: {train_acc_5*100:6.2f}%')
         print(f'\tValid Loss: {valid_loss:.3f} | Valid Acc @1: {valid_acc_1*100:6.2f}% | ' \
             f'Valid Acc @1: {valid_acc_5*100:6.2f}%')
-
+    
     ### TODO: take best model features and generate data points to fit gaussians
 
     model.load_state_dict(torch.load('tut5-model.pt'))
@@ -728,16 +728,26 @@ def main():
         write = csv.writer(f)
         write.writerows(FEATS)
         f.close()
-    
-    '''
+    """
     # Examine the test accuracies
     model.load_state_dict(torch.load('tut5-model.pt'))
 
-    test_loss, test_acc_1, test_acc_k = evaluate(model, test_iterator, criterion, device, k=1, extract_features = False, flist = FEATS, plist = PREDS)
+    # test loop, needs to encompass training loop also... need to refactor entire thing
+    test_acc = [10]
+    for i in range(10):
+        test_loss, test_acc_1, test_acc_k = evaluate(model, test_iterator, criterion, device, k=1, extract_features = False, flist = FEATS, plist = PREDS)
 
-    print(f'Test Loss: {test_loss:.3f} | Test Acc @1: {test_acc_1*100:6.2f}% | ' \
-        f'Test Acc @1: {test_acc_k*100:6.2f}%')
-    
+        test_acc[i] = f'Test Loss: {test_loss:.3f} | Test Acc @1: {test_acc_k*100:6.2f}%'
+
+    with open('no_transfer_prediction_tests.csv', 'w') as file:
+        for line in test_acc:
+            file.write(line)
+        file.close()
+            
+            
+    test_loss, test_acc_1, test_acc_k = evaluate(model, test_iterator, criterion, device, k=1, extract_features = False, flist = FEATS, plist = PREDS)
+    print(f'Test Loss: {test_loss:.3f} | Test Acc @1: {test_acc_1*100:6.2f}% | ' f'Test Acc @1: {test_acc_k*100:6.2f}%')
+
     # ### Examining the Model
     # Get the predictions for each image in the test set...
     print()
@@ -755,7 +765,7 @@ def main():
     plot_filtered_images(images, labels, classes, filters, n_filters=N_FILTERS)
     
     plot_filters(filters, title='After')
-    '''
+    
     return
         
         
