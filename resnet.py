@@ -765,9 +765,9 @@ def main():
     plot_filtered_images(images, labels, classes, filters, n_filters=N_FILTERS)
     
     plot_filters(filters, title='After')
-    
-    return
-        
+
+    """
+    return        
         
         
 if __name__ == "__main__":
