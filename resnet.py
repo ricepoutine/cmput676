@@ -1,89 +1,4 @@
-
-###
-### See: https://github.com/bentrevett/pytorch-image-classification
-###
-### For the complete tutorial on image classification using Python, Pytorch and deep nets.
-### This code has been copied over from a Jupyter notebook for Tutorial #5: ResNet.
-### It is slightly altered for a 2-class ('malignant' and 'benign') classification task on pathology images.
-### It is also modified to allow it to run on Mac OS 12.6 (Monterey) or higher with Apple Silicon (M1 or M2)
-### processors. These have built-in GPUs that pytorch calls 'mps' (Metal Performance Shaders)
-###
-###
-
-
-
-
-# In this notebook we'll be implementing one of the [ResNet](https://arxiv.org/abs/1512.03385) (Residual Network) 
-# model variants. Much like the [VGG](https://arxiv.org/abs/1409.1556) model introduced in the previous notebook, 
-# ResNet was designed for the [ImageNet challenge](http://www.image-net.org/challenges/LSVRC/), which it won in 2015.
-
-# ResNet, like VGG, also has multiple *configurations* which specify the number of layers and the sizes of 
-# those layers. Each layer is made out of *blocks*, which are made up of convolutional layers, batch normalization 
-# layers and *residual connections* (also called *skip connections* or *shortcut connections*). Confusingly, 
-# ResNets use the term "layer" to refer to both a set of blocks, e.g. "layer 1 has two blocks", and also the total 
-# number of layers within the entire ResNet, e.g. "ResNet18 has 18 layers".
-
-# A residual connection is simply a direct connection between the input of a block and the output of a block. 
-# Sometimes the residual connection has layers in it, but most of the time it does not. Below is an example block 
-# with an identity residual connection, i.e. no layers in the residual path.
-
-# ![](assets/resnet-skip.png)
-
-# The different ResNet configurations are known by the total number of layers within them - ResNet18, ResNet34, 
-# ResNet50, ResNet101 and ResNet152. 
-
-# ![](assets/resnet-table.png)
-
-# From the table above, we can see that for ResNet18 and ResNet34 that the first block contains two 3x3 convolutional 
-# layers with 64 filters, and that ResNet18 has two of these blocks in the first layer, whilst Resnet34 has three. 
-# ResNet50, ResNet101 and ResNet152 blocks have a different structure than those in ResNet18 and ResNet34, and these 
-# blocks are called *bottleneck* blocks. Bottleneck blocks reduce the number of number of channels within the input 
-# before expanding them back out again. Below shows a standard *BasicBlock* (left) - used by ResNet18 and ResNet34 - 
-# and the *Bottleneck* block used by ResNet50, ResNet101 and ResNet152.
-
-# ![](assets/resnet-blocks.png)
-
-# Why do ResNets work? The key is in the residual connections. Training incredibly deep neural networks is difficult 
-# due to the gradient signal either exploding (becoming very large) or vanishing (becoming very small) as it gets 
-# backpropagated through many layers. Residual connections allow the model to learn how to "skip" layers - by setting 
-# all their weights to zero and only rely on the residual connection. Thus, in theory, if your ResNet152 model can 
-# actually learn the desired function between input and output by only using the first 52 layers the remaining 100 
-# layers should set their weights to zero and the output of the 52nd layer will simply pass through the residual 
-# connections unhindered. This also allows for the gradient signal to also backpropagate through those 100 layers 
-# unhindered too. This outcome could also also be achieved in a network without residual connections, the "skipped" 
-# layers would learn to set their weights to one, however adding the residual connection is more explicit and is 
-# easier for the model to learn to use these residual connections.
-
-# The image below shows a comparison between VGG-19, a convolutional neural network architecture without residual 
-# connections, and one with residual connections - ResNet34. 
-
-# ![](assets/vgg-resnet.png)
-
-# In this notebook we'll also be showing how to use torchvision to handle datasets that are not part of 
-# `torchvision.datasets`. Specificially we'll be using the 2011 version of the 
-# [CUB200](http://www.vision.caltech.edu/visipedia/CUB-200-2011.html) dataset. This is a dataset with 200 
-# different species of birds. Each species has around 60 images, which are around 500x500 pixels each. Our goal 
-# is to correctly determine which species an image belongs to - a 200-dimensional image classification problem.
-
-# As this is a relatively small dataset - ~12,000 images compared to CIFAR10's 60,000 images - we'll be using 
-# a pre-trained model and then performing transfer learning using discriminative fine-tuning. 
-
-# **Note:** on the CUB200 dataset website there is a warning about some of the images in the dataset also appearing 
-# in ImageNet, which our pre-trained model was trained on. If any of those images are in our test set then this 
-# would be a form of "information leakage" as we are evaluating our model on images it has been trained on. 
-# However, the GitHub gist linked at the end of [this](https://guopei.github.io/2016/Overlap-Between-Imagenet-And-CUB/) 
-# article states that only 43 of the images appear in ImageNet. Even if they all ended up in the test set this would 
-# only be ~1% of all images in there so would have a negligible impact on performance.
-
-# We'll also be using a learning rate scheduler, a PyTorch wrapper around an optimizer which allows us to dynamically 
-# alter its learning rate during training. Specifically, we'll use the *one cycle learning learning rate scheduler*, 
-# also known as *superconvergnence*, from [this](https://arxiv.org/abs/1803.09820) paper and is commonly used in 
-# the [fast.ai course](https://course.fast.ai/).
-
-# ### Data Processing
-# As always, we'll start by importing all the necessary modules. We have a few new imports here:
-# - `lr_scheduler` for using the one cycle learning rate scheduler
-# - `namedtuple` for handling ResNet configurations
+### Reference: https://github.com/bentrevett/pytorch-image-classification
 
 import torch
 import torch.nn as nn
@@ -111,59 +26,6 @@ import time
 from plot import normalize_image, plot_images, count_parameters, plot_lr_finder, plot_confusion_matrix, plot_filtered_images, plot_filters
 from helper import get_features
 
-### Defining the Model
-
-# Next up, we'll be defining our model. As mentioned previously, we'll be using one of the residual network (ResNet) models. 
-# Let's look at the ResNet configuration table again:
-
-# ![](assets/resnet-table.png)
-
-# As we can see, there is a common 7x7 convolutional layer and max pooling layer at the start of all ResNet models - 
-# these layers also have padding, which is not shown in the table. These are followed by four "layers", each containing a 
-# different number of blocks. There are two different blocks used, one for the ResNet18 and ResNet34 - called 
-# the `BasicBlock` - , and one for the ResNet50, ResNet101 and ResNet152 - called the `Bottleneck` block.
-
-# Our `ResNet` class defines the initial 7x7 convolutional layer along with batch normalization, a ReLU activation function 
-# and a downsampling max pooling layer. We then build the four layers from the provided configuration, `config`, which specifies: 
-# the block to use, the number of blocks in the layer, and the number of channels in that layer. For the `BasicBlock` the 
-# number of channels in a layer is simply the number of filters for both of the convolutional layers within the block. 
-# For the `Bottleneck` block, the number of channels refers to the number of filters used by the first two convolutional layers - 
-# the number of the filters in the final layer is the number of channels multiplied by an `expansion` factor, which is 4 for 
-# the `Bottleneck` block (and 1 for the `BasicBlock`). Also note that the `stride` of the first layer is one, whilst the 
-# `stride` of the last three layers is two. This `stride` is only used to change the `stride` of the first convolutional 
-# layer within a block and also in the "downsampling" residual path - we'll explain what downsampling in ResNets means shortly.
-
-# `get_resnet_layer` is used to define the layers from the configuration by creating a `nn.Sequential` from a list of blocks. 
-# The first thing it checks is if the first block in a layer needs to have a downsampling residual path - only the first block 
-# within a layer ever needs to have a downsampling residual path. So, what is a downsampling residual path?
-
-# ![](assets/resnet-skip.png)
-
-# Remember that the key concept in the ResNet models is the residual (aka skip/identity) connection. However, if the number of 
-# channels within the image is changed in the main connection of the block then it won't have the same number of channels as 
-# the image from the residual connection and thus we cannot sum them together. Consider the first block in second layer of 
-# ResNet18, the image tensor passed to it will have 64 channels and the output will have 128 channels. Thus, we need to make a 
-# residual connection between a 64 channel tensor and a 128 channel tensor. ResNet models solve this using a downsampling 
-# connection - technically, it doesn't always downsample the image as sometimes the image height and width stay the same - 
-# which increases the number of channels in the image through the residual connection by passing them through a convolutional 
-# layer. 
-
-# Thus, to check if we need to downsample within a block or not, we simply check if the number of channels into the block - 
-# `in_channels` - is the number of channels out of the block - defined by the `channels` argument multipled by the `expansion` 
-# factor of the block. Only the first block in each layer is checked if it needs to downsample or not. After each layer is created, 
-# we update `in_channels` to be the number of channels of the image when it is output by the layer.
-
-# We then follow the four layers with a 1x1 adaptive average pool. This will take the average over the entire height and 
-# width of the image separately for each channel. Thus, if the input to the average pool is `[512, 7, 7]` (512 channels and a 
-# height and width of seven) then the output of the average pool will be `[512, 1, 1]`. We then pass this average pooled 
-# output to a linear layer to make a prediction. We always know how many channels will be in the image after the fourth 
-# layer as we continuously update `in_channels` to be equal to the number of the channels in the image output by each layer.
-
-# One thing to note is that the initial convolutional layer has `bias = False`, which means there is no bias term used 
-# by the filters. In fact, every convolutional layer used within every ResNet model always has `bias = False`. The authors 
-# of the ResNet paper argue that the bias terms are unnecessary as every convolutional layer in a ResNet is followed by a 
-# batch normalization layer which has a $\beta$ (beta) term that does the same thing as the bias term in the convolutional layer, 
-# a simple addition. See the previous notebook for more details on how batch normalization works.
 
 class ResNet(nn.Module):
     def __init__(self, config, output_dim):
@@ -224,26 +86,6 @@ class ResNet(nn.Module):
         return x, h
     
     
-# First up is the `BasicBlock`. 
-
-# The `BasicBlock` is made of two 3x3 convolutional layers. The first, `conv1`, has `stride` which varies depending on the 
-# layer (one in the first layer and two in the other layers), whilst the second, `conv2`, always has a `stride` of one. 
-# Each of the layers has a `padding` of one - this means before the filters are applied to the input image we add a single 
-# pixel, that is zero in every channel, around the entire image. Each convolutional layer is followed by a ReLU activation 
-# function and batch normalization. 
-
-# As mentioned in the previous notebook, it makes more sense to use batch normalization after the activation function, 
-# rather than before. However, the original ResNet models used batch normalization before the activation, so we do here as well.
-
-# When downsampling, we add a convolutional layer with a 1x1 filter, and no padding, to the residual path. This also has a 
-# variable `stride` and is followed by batch normalization. With a stride of one, a 1x1 filter does not change the height and 
-# width of an image - it simply has `out_channels` number of filters, each with a depth of `in_channels`, i.e. it is 
-# increasing the number of channels in an image via a linear projection and not actually downsampling at all. With a stride 
-# of two, it reduces the height and width of the image by two as the 1x1 filter only passes over every other pixel - this 
-# time it is actually downsampling the image as well as doing the linear projection of the channels.
-
-# The `BasicBlock` has an `expansion` of one as the number of filters used by each of the convolutional layers within a block 
-# is the same.
 class BasicBlock(nn.Module):
     
     expansion = 1
@@ -291,26 +133,6 @@ class BasicBlock(nn.Module):
         return x
     
     
-# The `Bottleneck` block, used for ResNet50, ResNet101 and ResNet152. 
-
-# Instead of two 3x3 convolutional layers it has a 1x1, 3x3 and then another 1x1 convolutional layer. 
-# Only the 3x3 convolutional layer has a variable stride and padding, whilst the 1x1 filters have a stride of one and no padding.
-
-# The first 1x1 filter, `conv1`, is used to reduce the number of channels in all layers except the first, 
-# where it keeps the number of channels the same, e.g. in first block in of second layer it goes from 256 
-# channels to 128. In the case where a 1x1 filter reduces the number of channels it can be thought of as a 
-# pooling layer across the channel dimension, but instead of doing a simple maximum or average operation 
-# it learns - via its weights - how to most efficiently reduce dimensionality. Reducing the dimensionality 
-# is also useful for simply reducing the number of parameters within the model and making it feasible to train.
-
-# The second 1x1 filter, `conv3`, is used to increase the number of channels - similar to the convolutional 
-# layer in the downsampling path.
-
-# The `Bottleneck` block has an `expansion` of four, which means that the number of channels in the image output 
-# a block isn't `out_channels`, but `expansion * out_channels`. 
-
-# The downsampling convolutional layer is similar to that used in the `BasicBlock`, with the `expansion` factor 
-# taken into account.
 class Bottleneck(nn.Module):
     
     expansion = 4
@@ -366,9 +188,6 @@ class Bottleneck(nn.Module):
         return x
 
 
-
-# We define the learning rate finder class.
-# See notebook 3 for a reminder on how this works.
 class LRFinder:
     def __init__(self, model, optimizer, criterion, device):
         
@@ -470,20 +289,6 @@ class IteratorWrapper:
         return next(self)
 
 
-# One other thing we are going to implement is top-k accuracy. Our task is to classify an image into one of 200 classes of 
-# bird, however some of these classes look very similar and it is even difficult for a human to correctly label them. 
-# So, maybe we should be more lenient when calculating accuracy? 
-
-# One method of solving this is using top-k accuracy, where the prediction is labelled correct if the correct label is 
-# in the top-k predictions, instead of just being the first. Our `calculate_topk_accuracy` function calculates the 
-# top-1 accuracy as well as the top-k accuracy, with $k=5$ by default.
-
-# We use `.reshape` instead of view here as the slices into tensors cause them to become non-contiguous which means 
-# `.view` throws an error. As a rule of thumb, if you are aiming to change the size/shape of sliced tensors then 
-# you should probably use `.reshape` instead of `.view`.
-
-# **Note:** our value of k should be chosen sensibly. If we had a dataset with 10 classes then a k of 5 isn't really 
-# that informative.
 def calculate_topk_accuracy(y_pred, y, k = 5):
     with torch.no_grad():
         batch_size = y.shape[0]
@@ -497,15 +302,6 @@ def calculate_topk_accuracy(y_pred, y, k = 5):
     return acc_1, acc_k
 
 
-# Next up is the training function. This is similar to all the previous notebooks, but with the addition 
-# of the `scheduler` and calculating/returning top-k accuracy.
-
-# The scheduler is updated by calling `scheduler.step()`. This should always be called **after** 
-# `optimizer.step()` or else the first learning rate of the scheduler will be skipped. 
-
-# Not all schedulers need to be called after each training batch, some are only called after each epoch. 
-# In that case, the scheduler does not need to be passed to the `train` function and can be called in 
-# the main training loop.
 def train(model, iterator, optimizer, criterion, scheduler, device, k=5):
     
     epoch_loss = 0
@@ -544,9 +340,6 @@ def train(model, iterator, optimizer, criterion, scheduler, device, k=5):
     return epoch_loss, epoch_acc_1, epoch_acc_k
 
 
-# The evaluation function is also similar to previous notebooks, with the addition of the top-k accuracy.
-# As the one cycle scheduler should only be called after each parameter update, it is not called 
-# here as we do not update parameters whilst evaluating.
 def evaluate(model, iterator, criterion, device, k=5, extract_features = False, fdict = {}, flist = [], plist = []):
     
     epoch_loss = 0
@@ -566,7 +359,9 @@ def evaluate(model, iterator, criterion, device, k=5, extract_features = False, 
             
             if extract_features:
                 #add feats and preds to list
-                plist.append(y_pred.detach().cpu().numpy())
+                y_prob = F.softmax(y_pred, dim = -1)
+                top_pred = y_prob.argmax(1, keepdim = True)
+                plist.append(top_pred.detach().cpu().numpy())
                 flist.append(fdict['feats'].cpu().numpy())
 
             loss = criterion(y_pred, y)
@@ -584,7 +379,6 @@ def evaluate(model, iterator, criterion, device, k=5, extract_features = False, 
     return epoch_loss, epoch_acc_1, epoch_acc_k
 
 
-# Next, a small helper function which tells us how long an epoch has taken.
 def epoch_time(start_time, end_time):
     elapsed_time = end_time - start_time
     elapsed_mins = int(elapsed_time / 60)
@@ -638,7 +432,7 @@ def main():
     N_IMAGES = 5
     N_FILTERS = 7
 
-    learn_means_from_data = True #set to false and load dict to use pretrained
+    learn_means_from_data = False #set to false and load dict to use pretrained
     show_sample_images = False
     print_model = False
     find_learning_rate = False
@@ -696,7 +490,7 @@ def main():
     train_data = datasets.ImageFolder(root = train_dir, transform = train_transforms)
     test_data = datasets.ImageFolder(root = test_dir, transform = test_transforms)
 
-    VALID_RATIO = 0.9
+    VALID_RATIO = 0.25
 
     n_train_examples = int(len(train_data) * VALID_RATIO)
     n_valid_examples = len(train_data) - n_train_examples
@@ -874,41 +668,6 @@ def main():
 
     optimizer = optim.Adam(params, lr = FOUND_LR)
     
-    # Next up, we set the learning rate scheduler. A learning rate scheduler dynamically alters the learning 
-    # rate whilst the model is training. We'll be using the one cycle learning rate scheduler, however 
-    # [many](https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate) schedulers are available in PyTorch.
-
-    # The one cycle learning rate scheduler starts with a small initial learning rate which is gradually increased 
-    # to a maximum value - the value found by our learning rate finder - it then slowly decreases the learning 
-    # rate to a final value smaller than the initial learning rate. This learning rate is updated after every parameter 
-    # update step, i.e. after every training batch. For our model, the learning rate for the final `fc` layer throughout 
-    # training will look like:
-
-    # ![](assets/lr-scheduler.png)
-
-    # As we can see, it starts at slightly less than $1x10^{-4}$ before gradually increasing to the maximum value of 
-    # $1x10^{-3}$ at around a third of the way through training, then it begins decreasing to almost zero.
-
-    # The different parameter groups defined by the optimizer for the discriminative fine-tuning will all have their 
-    # own learning rate curves, each with different starting and maximum values.
-
-    # The hypothesis is that the initial stage where the learning rate increases is a "warm-up" phase is used to 
-    # get the model into a generally good area of the loss landscape. The middle of the curve, where the learning rate 
-    # is at maximum is supposedly good for acting as a regularization method and prevents the model from overfitting or 
-    # becoming stuck in saddle points. Finally, the "cool-down" phase, where the learning rate decreases, is used to 
-    # reach small crevices in the loss surface which have a lower loss value.
-
-    # The one cycle learning rate also cycles the momentum of the optimizer. The momentum is cycled from a maximum value, 
-    # down to a minimum and then back up to the maximum where it is held constant for the last few steps. The default maximum 
-    # and minimum values of momentum used by PyTorch's one cycle learning rate scheduler should be sufficient and we will 
-    # not change them.
-
-    # To set-up the one cycle learning rate scheduler we need the total number of steps that will occur during training. 
-    # We simply get this by multiplying the number of epochs with the number of batches in the training iterator, i.e. 
-    # number of parameter updates. We get the maximum learning rate for each parameter group and pass this to `max_lr`. 
-    # **Note:** if you only pass a single learning rate and not a list of learning rates then the scheduler will assume 
-    # this learning rate should be used for all parameters and will **not** do discriminative fine-tuning.
-    
     STEPS_PER_EPOCH = len(train_iterator)
     TOTAL_STEPS = EPOCHS * STEPS_PER_EPOCH
     
@@ -925,7 +684,7 @@ def main():
     best_valid_loss = float('inf')
 
     # remove if already trained!!!
-    """
+
     for epoch in range(EPOCHS):
         
         start_time = time.monotonic()
@@ -946,7 +705,7 @@ def main():
             f'Train Acc @1: {train_acc_5*100:6.2f}%')
         print(f'\tValid Loss: {valid_loss:.3f} | Valid Acc @1: {valid_acc_1*100:6.2f}% | ' \
             f'Valid Acc @1: {valid_acc_5*100:6.2f}%')
-    """
+
     ### TODO: take best model features and generate data points to fit gaussians
 
     model.load_state_dict(torch.load('tut5-model.pt'))
@@ -955,17 +714,17 @@ def main():
     # Inspect features (TEST)
 
     PREDS = np.concatenate(PREDS)
-    FEATS = np.resize(np.concatenate(FEATS), (200,2048))
+    FEATS = np.resize(np.concatenate(FEATS), (n_valid_examples,2048))
 
     print('- preds shape:', PREDS.shape)
     print('- feats shape:', FEATS.shape)
 
     import csv
-    with open('PREDS_test.csv', 'w') as f:
+    with open('PREDS_test.csv', 'w', newline='') as f:
         write = csv.writer(f)
         write.writerows(PREDS)
         f.close()
-    with open('FEATS_test.csv', 'w') as f:
+    with open('FEATS_test.csv', 'w', newline='') as f:
         write = csv.writer(f)
         write.writerows(FEATS)
         f.close()
